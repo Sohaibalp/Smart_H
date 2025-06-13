@@ -1,0 +1,42 @@
+#include <xc.h>                // Use xc.h for XC8 compiler compatibility
+#define _XTAL_FREQ 20000000   // 20 MHz crystal frequency
+
+// CONFIGURATION BITS
+#pragma config FOSC = HS        // High-Speed Oscillator
+#pragma config WDTE = OFF       // Watchdog Timer Disable
+#pragma config PWRTE = ON       // Power-up Timer Enable
+#pragma config BOREN = OFF      // Brown-out Reset Disable
+#pragma config LVP = OFF        // Low-Voltage Programming Disable
+#pragma config CPD = OFF        // Data EEPROM Code Protection Disable
+#pragma config WRT = OFF        // Flash Program Memory Write Protection Disable
+#pragma config CP = OFF         // Code Protection Disable
+
+// PIR Sensor Definitions
+#define PIR1 RD3  // Sensor 1 - Room
+#define PIR2 RD4  // Sensor 2 - Bath
+#define PIR3 RD5  // Sensor 3 - Main
+
+// LED Definitions
+#define ROOM_LIGHT RB1  // For PIR1
+#define BATH_LIGHT RB2  // For PIR2
+#define MAIN_LIGHT RB3  // For PIR3
+
+void main() {
+    // Set direction registers
+    TRISD = 0x38;   // RD3-RD5 as inputs for PIR sensors
+    TRISB = 0x00;   // PORTB as outputs for LEDs
+
+    // Initialize ports
+    PORTD = 0x00;
+    PORTB = 0x00;
+
+    while(1) {
+        // Update LEDs according to PIR sensor input states
+        ROOM_LIGHT = PIR1;
+        BATH_LIGHT = PIR2;
+        MAIN_LIGHT = PIR3;
+
+        // Small delay for debounce and stability
+        __delay_ms(10);
+    }
+}
