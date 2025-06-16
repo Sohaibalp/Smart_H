@@ -1,0 +1,172 @@
+#include <xc.h>
+#define _XTAL_FREQ 20000000   // 20 MHz crystal
+
+// CONFIGURATION BITS
+#pragma config FOSC = HS        // High-speed crystal
+#pragma config WDTE = OFF       // Watchdog Timer disabled
+#pragma config PWRTE = ON       // Power-up Timer enabled
+#pragma config BOREN = OFF      // Brown-out Reset disabled
+#pragma config LVP = OFF        // Low-voltage programming disabled
+#pragma config CPD = OFF        // Data EEPROM code protection disabled
+#pragma config WRT = OFF        // Flash program memory write protection off
+#pragma config CP = OFF         // Code protection off
+
+// LCD Pin Definitions (RW is grounded)
+#define RS RD0
+#define EN RD2
+
+// PIR Sensor Definitions
+#define PIR1 RD3  // Room
+#define PIR2 RD4  // Bath
+#define PIR3 RD5  // Main
+
+// LED Definitions
+#define ROOM_LIGHT RB1
+#define BATH_LIGHT RB2
+#define MAIN_LIGHT RB3
+
+// Buzzer Definition
+#define BUZZER RB4
+
+// Light threshold
+#define LDR_THRESHOLD 300
+
+// Send 4-bit nibble to LCD
+void lcd_send_nibble(unsigned char nibble) {
+    PORTC = (PORTC & 0x0F) | ((nibble & 0x0F) << 4);  // Send to RC4–RC7
+    EN = 1;
+    __delay_us(1);
+    EN = 0;
+    __delay_us(100);
+}
+
+// Send data to LCD
+void lcd_data(unsigned char data) {
+    RS = 1;
+    lcd_send_nibble(data >> 4);
+    lcd_send_nibble(data);
+    __delay_us(100);
+}
+
+// Send command to LCD
+void lcd_command(unsigned char cmd) {
+    RS = 0;
+    lcd_send_nibble(cmd >> 4);
+    lcd_send_nibble(cmd);
+    if (cmd == 0x01 || cmd == 0x02) __delay_ms(2);
+    else __delay_us(100);
+}
+
+// Send string to LCD
+void lcd_string(const char *str) {
+    while (*str) lcd_data(*str++);
+}
+
+// LCD initialization
+void lcd_initialize() {
+    __delay_ms(20);
+    RS = 0;
+    lcd_send_nibble(0x03);
+    __delay_ms(5);
+    lcd_send_nibble(0x03);
+    __delay_us(100);
+    lcd_send_nibble(0x03);
+    __delay_us(100);
+    lcd_send_nibble(0x02);     // 4-bit mode
+    lcd_command(0x28);         // 2-line, 5x8 dots
+    lcd_command(0x0C);         // Display ON, Cursor OFF
+    lcd_command(0x06);         // Auto-increment cursor
+    lcd_command(0x01);         // Clear display
+    __delay_ms(2);
+}
+
+// Read LDR value
+unsigned int read_lDR() {
+    __delay_us(5);
+    ADCON0bits.GO = 1;
+    while (ADCON0bits.GO);
+    return ((ADRESH << 8) | ADRESL);
+}
+
+// Update LCD display
+void update_display(unsigned char sensors_enabled) {
+    if (sensors_enabled) {
+        if (PIR1 && PIR2 && PIR3) {
+            lcd_command(0x01);
+            lcd_string("High Energy");
+            lcd_command(0xC0);
+            lcd_string("Consumption!!");
+        } else {
+            lcd_command(0x80);
+            lcd_string("Room:");
+            lcd_string(PIR1 ? "ON " : "OFF");
+            lcd_string(" Bath:");
+            lcd_string("     ");
+            lcd_command(0xC0);
+            lcd_string("Main:");
+            lcd_string(PIR3 ? "ON " : "OFF");
+            lcd_string(PIR2 ? "   ON" : "   OFF");
+            lcd_string("     ");
+        }
+    } else {
+        lcd_command(0x01);
+        lcd_string("High Light Mode");
+        lcd_command(0xC0);
+        lcd_string("Sensors Disabled");
+        
+    }
+}
+
+void main() {
+    // Port directions
+    TRISA = 0xFF;   // RA0 input (LDR)
+    TRISB = 0x00;   // PORTB outputs (LEDs, buzzer)
+    TRISC = 0x00;   // PORTC outputs (LCD)
+    TRISD = 0x38;   // RD3–RD5 inputs (PIRs), RD0 & RD2 output (LCD)
+
+    // Initial states
+    PORTA = 0x00;
+    PORTB = 0x00;
+    PORTC = 0x00;
+    PORTD = 0x00;
+
+    // ADC Configuration
+    ADCON0 = 0x41;  // Channel 0 (RA0), ADC ON
+    ADCON1 = 0x80;  // Right justified, RA0 analog, rest digital
+
+    // LCD init
+    lcd_initialize();
+
+    // Startup message
+    lcd_command(0x01);
+    __delay_ms(20);
+    lcd_command(0x80);
+    lcd_string("   Automation  ");
+    lcd_command(0xC0);
+    lcd_string("  System Ready");
+    __delay_ms(3000);
+    lcd_command(0x01);
+
+    unsigned char sensors_enabled = 1;
+
+    while (1) {
+        unsigned int ldr_value = read_lDR();
+
+        if (ldr_value < LDR_THRESHOLD) {
+            sensors_enabled = 1; 
+            ROOM_LIGHT = PIR1;
+            BATH_LIGHT = PIR2;
+            MAIN_LIGHT = PIR3;
+            BUZZER = (PIR1 && PIR2 && PIR3);
+        } else {
+            sensors_enabled = 0;
+            ROOM_LIGHT = 0;
+            BATH_LIGHT = 0;
+            MAIN_LIGHT = 0;
+            BUZZER = 0;
+        }
+
+        update_display(sensors_enabled);
+        __delay_ms(200);
+    }
+}
